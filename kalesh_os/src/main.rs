@@ -23,6 +23,7 @@ fn panic(_info: &PanicInfo) -> ! {
 // fn main() {
 // }
 //instead use this:
+//The attribute is required because we need to tell the name of the entry point function to the linker in the next step.
  #[no_mangle]  // this is related to how rust interacts with other languages
 // normally rust mangles(changes) the function names to include extra information
 // no_mangle ensures that the function name is not changed, at compile time.
@@ -41,6 +42,10 @@ pub extern "C" fn unmangled_function() {
     println!("Hello!");
 }
 */
+//The reason for naming the function _start is that this is the default entry point name for most systems.
+//The ! return type means that the function is diverging, i.e. not allowed to ever return. 
+// This is required because the entry point is not called by any function, but invoked directly by the operating system or bootloader. 
+// So instead of returning, the entry point should e.g. invoke the exit system call of the operating system
 pub extern "C" fn _start() -> ! {  // Platform-specific entry point
     loop {} // Program must not return, hence the infinite loop
 }
