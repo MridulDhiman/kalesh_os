@@ -24,7 +24,9 @@ panic = "abort"
 ```
 
 ### Rust program initialization
+
 When you run a typical program (whether it's in Rust, C, Java, or Go), there's quite a bit happening before your main function runs. Think of it like starting up a factory - before the workers (your program's main logic) can begin, someone needs to turn on the lights, start the generators, and ensure all safety systems are operational.
+
 --- 
 In a standard Rust program, the startup sequence looks like this:
 Operating System → crt0 → Rust Runtime → main function
