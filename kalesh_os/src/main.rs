@@ -18,6 +18,9 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
+
+static HELLO: &[u8] = b"Hello World!";
+
 // using main requires the standard library, 
 // instead use #[no_main]
 // fn main() {
@@ -47,5 +50,14 @@ pub extern "C" fn unmangled_function() {
 // This is required because the entry point is not called by any function, but invoked directly by the operating system or bootloader. 
 // So instead of returning, the entry point should e.g. invoke the exit system call of the operating system
 pub extern "C" fn _start() -> ! {  // Platform-specific entry point
+    let vga_buffer = 0xb8000 as *mut u8;
+
+    for (i, &byte) in HELLO.iter().enumerate() {
+        unsafe {
+            *vga_buffer.offset(i as isize * 2) = byte;
+            *vga_buffer.offset(i as isize * 2 + 1) = 0xb;
+        }
+    }
+
     loop {} // Program must not return, hence the infinite loop
 }
