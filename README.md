@@ -135,3 +135,106 @@ It's 3rd job is to query certain information from BIOS and pass it to OS kernel.
 
 Every Bootloader need to be Multiboot standard compliant. This standard defines an interface b/w bootloader and kernel, so that multiboot compliant bootloader can load any multiboot compliant operating system.
 To make a kernel Multiboot compliant, one just needs to insert a so-called Multiboot header at the beginning of the kernel file. e.g.  GNU GRUB, which is the most popular bootloader for Linux systems.
+
+
+### Target Specification
+We want to build our rust binary to bare metal target. In cargo, it is done via `--target` parameter.
+This is specified as target triple.
+
+
+The triple has the general format <arch><sub>-<vendor>-<sys>-<env>, where:
+- arch = x86_64, i386, arm, thumb, mips, etc.
+- sub = for ex. on ARM: v5, v6m, v7a, v7m, etc.
+- vendor = pc, apple, nvidia, ibm, etc. => unknown in our case.
+- sys = none, linux, win32, darwin, cuda, etc.
+- env = eabi, gnu, android, macho, elf, etc.
+
+The sub-architecture options are available for their own architectures, of course, so “x86v7a” doesn’t make sense. The vendor needs to be specified only if there’s a relevant change, for instance between PC and Apple. Most of the time it can be omitted (and Unknown) will be assumed, which sets the defaults for the specified architecture. The system name is generally the OS (linux, darwin), but could be special like the bare-metal “none”.
+
+When a parameter is not important, it can be omitted, or you can choose unknown and the defaults will be used. 
+
+Finally, the env (environment) option is something that will pick default CPU/FPU, define the specific behaviour of your code (PCS, extensions), and also choose the correct library calls, etc.
+
+For example, the x86_64-unknown-linux-gnu target triple describes a system with an x86_64 CPU, no clear (unknown) vendor, and a Linux operating system with the GNU ABI(Application binary interface).
+
+For our target system, however, we require some special configuration parameters (e.g. no underlying OS), so none of the existing target triples fits. Fortunately, Rust allows us to define our own target through a JSON file.
+
+Most fields are required by LLVM to generate code for that platform. For example, the data-layout field defines the size of various integer, floating point, and pointer types. Then there are fields that Rust uses for conditional compilation, such as target-pointer-width. The third kind of field defines how the crate should be built. For example, the pre-link-args field specifies arguments passed to the linker.
+
+We will create our target specifications:
+```json
+{
+    "llvm-target": "x86_64-unknown-none",
+    "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+    "arch": "x86_64",
+    "target-endian": "little",
+    "target-pointer-width": "64",
+    "target-c-int-width": "32",
+    "os": "none",
+    "executables": true,
+    "linker-flavor": "ld.lld",
+    "linker": "rust-lld",
+    "panic-strategy": "abort",
+    "disable-redzone": true,
+    "features": "-mmx,-sse,+soft-float",
+    "rustc-abi": "x86-softfloat"
+}
+```
+- `arch`: x86_64 CPU architecture
+- `data-layout`: defines the size of integer, floating point and pointer types.
+- `os: none`, => builds to bare metal target
+- `linker: "rust-lld"`, instead of using platform's default linker, we will use here cross platform LLD linker for linking our kernel.
+- `linker-flavor: "ld.lld"`: LLD linker rather than gnu or other. We can configure diff. linker flavor using `--flavor` flag.
+- `panic-strategy: "abort"`, disable default stack unwinding on panic.
+- `"disable-redzone": true`, disables stack pointer optimization known as "red zone", as it would cause stack corruption otherwise. This is done to handle interrupts while writing kernel.
+
+Rust Core library is provided with rust compiler as precompiled binary. So, if we want to use it with our target specification, we have to build the core library according to our target specification as well.
+
+- Create .cargo/config.toml and paste this: 
+
+```bash
+[build]
+target = "x86_64-kalesh_os.json"
+
+[unstable]
+build-std-features = ["compiler-builtins-mem"] ## exposes memset, memcpy and memset like memory related features for the compiler to use
+build-std = ["core", "compiler_builtins"] ## This tells cargo it will recompile the core and compiler_builtins(reqd. because it is dependency of core) standard library...
+```
+
+That’s where the build-std feature of cargo comes in. It allows to recompile core and other standard library crates on demand, instead of using the precompiled versions shipped with the Rust installation. This feature is very new and still not finished, so it is marked as “unstable” and only available on nightly Rust compilers.
+
+
+### VGA Text buffer
+VGA text mode is a classic display mode used in computers, particularly in the DOS/early PC era. It's basically a simple way to display text on a screen where each character occupies a fixed cell in an 80x25 grid (by default).
+The cool thing about VGA text mode is that each character cell contains two bytes:
+
+One byte for the actual character (like 'A' or '7')
+One byte for the attributes (colors and effects)
+
+The attribute byte breaks down like this:
+
+Bits 0-3: Foreground color (16 colors)
+Bits 4-6: Background color (8 colors)
+Bit 7: Blink effect (makes text flash)
+
+This is why old DOS programs could have colored text and those cheesy blinking effects. The text mode was super efficient because it only needed to store 4000 bytes (80×25×2) to represent a full screen of colored text, compared to much more memory needed for graphical modes.
+
+For printing “Hello World!”, we just need to know that the buffer is located at address 0xb8000 and that each character cell consists of an ASCII byte and a color byte.
+
+```rust
+static HELLO: &[u8] = b"Hello World!";
+
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    let vga_buffer = 0xb8000 as *mut u8;
+
+    for (i, &byte) in HELLO.iter().enumerate() {
+        unsafe {
+            *vga_buffer.offset(i as isize * 2) = byte;
+            *vga_buffer.offset(i as isize * 2 + 1) = 0xb;
+        }
+    }
+
+    loop {}
+}
+```
