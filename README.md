@@ -238,3 +238,34 @@ pub extern "C" fn _start() -> ! {
     loop {}
 }
 ```
+
+### Running our kernel
+Our compiled kernel bare metal code is complete, which will print the "Hello World" to the screen.
+Now, we have to convert this compiled binary to bootable disk image and link it to a bootloader. Once, the disk image is created, we can run it on `QEMU` virtual machine.
+
+### Creating Bootimage
+we can add bootloader dependency, for booting our kernel. It contains no C dependency and only contain Rust and assembly code. 
+
+```toml
+# in Cargo.toml
+
+[dependencies]
+bootloader = "0.9"
+```
+
+`bootimage` crate compiles the kernel and bootloader and then links them together to create a bootable disk image.
+
+```bash
+#!/bin/bash
+cargo install bootimage
+rustup component add llvm-tools-preview
+cargo bootimage
+```
+
+The bootimage tool performs the following steps behind the scenes:
+
+- It compiles our kernel to an ELF(Executable and Linkable Format) file.
+- It compiles the bootloader dependency as a standalone executable.
+- It links the bytes of the kernel ELF file to the bootloader.
+
+When booted, the bootloader reads and parses the appended ELF file. It then maps the program segments to virtual addresses in the page tables, zeroes the .bss section, and sets up a stack. Finally, it reads the entry point address (our _start function) and jumps to it.
