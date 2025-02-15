@@ -5,6 +5,9 @@
 
 // PanicInfo contains the file and line no. where panic occurred.
 use core::panic::PanicInfo;
+mod vga_buffer;
+
+
 
 // RFC 1513: allows custom panic configuration at compile time...
 // panic_handler implementation: this function is called on panic
@@ -17,9 +20,6 @@ use core::panic::PanicInfo;
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
-
-// define a static byte string Hello World
-static HELLO: &[u8] = b"Hello World!";
 
 // using main requires the standard library, 
 // instead use #[no_main]
@@ -50,19 +50,6 @@ pub extern "C" fn unmangled_function() {
 // This is required because the entry point is not called by any function, but invoked directly by the operating system or bootloader. 
 // So instead of returning, the entry point should e.g. invoke the exit system call of the operating system
 pub extern "C" fn _start() -> ! {  // Platform-specific entry point
-    // vga buffer will print message to the screen and colorize them
-    //The VGA text mode buffer is located at memory address 0xb8000
-    let vga_buffer = 0xb8000 as *mut u8;
-// iterate through each byte of our message 
-    for (i, &byte) in HELLO.iter().enumerate() {
-        // unsafe mode is needed, as writing to memory address directly, is considered unsafe in Rust.
-        unsafe {
-            // write the character byte
-            *vga_buffer.offset(i as isize * 2) = byte;
-            // write the color attribute (0xb = light cyan)
-            *vga_buffer.offset(i as isize * 2 + 1) = 0xb;
-        }
-    }
-
+   vga_buffer::print_something();
     loop {} // Program must not return, hence the infinite loop
 }
