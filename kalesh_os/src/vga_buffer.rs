@@ -1,4 +1,9 @@
 
+
+use volatile::Volatile;
+use core::fmt;
+
+
 #[allow(dead_code)] // allows dead code, i.e. even if unused, will not give warning
 #[derive(Debug, Clone, Copy, PartialEq, Eq)] //allow debug, clone, copy, comparing 2 colors
 #[repr(u8)] // representation of each value in u8(unsigned 8 bit-> ASCII) format
@@ -62,7 +67,7 @@ const BUFFER_WIDTH: usize = 80;
 
 #[repr(transparent)]
 struct Buffer {
-    chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
+    chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
 /*
@@ -94,10 +99,10 @@ impl Writer {
                 let col = self.column_position;
                 let color_code = self.color_code;
                 // add the character to the buffer
-                self.buffer.chars[row][col] = ScreenChar {
+                self.buffer.chars[row][col].write(ScreenChar {
                     ascii_character: byte,
                     color_code,
-                };
+                });
 
                 self.column_position+= 1;
             }
@@ -117,15 +122,45 @@ impl Writer {
             }
         }
     }
-    fn new_line(&mut self) {/* TODO */}
+    // whenever we use newline, we are moving all the characters one row up instead.
+    fn new_line(&mut self) {
+        for row in 1..BUFFER_HEIGHT {
+            for col in 0..BUFFER_WIDTH {
+                let character = self.buffer.chars[row][col].read();
+                self.buffer.chars[row-1][col].write(character);
+            }
+            // as we are moving all rows up, clear the last row. 
+            self.clear_row(BUFFER_HEIGHT-1);
+            self.column_position = 0;
+        }
+    }
+
+    //This method clears a row by overwriting all of its characters with a space character.
+    fn clear_row(&mut self, row: usize) {
+        let blank = ScreenChar {
+            ascii_character: b' ',
+            color_code: self.color_code
+        };
+        for col in 0..BUFFER_WIDTH {
+            self.buffer.chars[row][col].write(blank);
+        }
+    }
     
 }
 
+// implementing formatting macros for VGA text buffer writer
+impl fmt::Write for Writer {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.write_string(s);
+        Ok(())
+    }
+}
 
 pub fn print_something() {
+    use core::fmt::Write;
     let mut writer = Writer {
         column_position : 0,
-        color_code: ColorCode::new(Color::Yellow, Color::Black),
+        color_code: ColorCode::new(Color::Green, Color::DarkGray),
         //First, we cast the integer 0xb8000 as a mutable raw pointer. Then we convert it to a mutable reference by dereferencing it (through *) and immediately borrowing it again (through &mut). This conversion requires an unsafe block, since the compiler can’t guarantee that the raw pointer is valid.
         buffer: unsafe {&mut *(0xb8000 as *mut Buffer)},
     }; // mutable buffer => buffer memory mapped to VGA hardware, that's why the repr(transparent)
@@ -133,5 +168,7 @@ pub fn print_something() {
     //The b prefix creates a byte literal, which represents an ASCII character. 
         writer.write_byte(b'H');
         writer.write_string("ello ");
-        writer.write_string("Wörld!");
+    //The write! call returns a Result which causes a warning if not used, so we call the unwrap function on it, which panics if an error occurs
+    //This isn’t a problem in our case, since writes to the VGA buffer never fail.
+      write!(writer, "The numbers are {} and {}", 42, 1.0/3.0).unwrap();
 }
