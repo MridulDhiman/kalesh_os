@@ -8,7 +8,6 @@ use core::panic::PanicInfo;
 mod vga_buffer;
 
 
-
 // RFC 1513: allows custom panic configuration at compile time...
 // panic_handler implementation: this function is called on panic
 #[panic_handler]

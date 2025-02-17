@@ -6,6 +6,7 @@ This `kalesh_os` is written taking these articles as [reference](https://os.phil
 ### Index 
 - [Part 1](#part-1)
 - [Part 2](#part-2)
+- [Part 3](#part-3)
 
 ### Part 1
  Create OS kernel as rust executable without linking the standard library to it. This makes it possible for Rust to run on bare metal without any underlying OS.
@@ -142,7 +143,7 @@ We want to build our rust binary to bare metal target. In cargo, it is done via 
 This is specified as target triple.
 
 
-The triple has the general format <arch><sub>-<vendor>-<sys>-<env>, where:
+The triple has the general format [arch][sub]-[vendor]-[sys]-[env], where:
 - arch = x86_64, i386, arm, thumb, mips, etc.
 - sub = for ex. on ARM: v5, v6m, v7a, v7m, etc.
 - vendor = pc, apple, nvidia, ibm, etc. => unknown in our case.
@@ -206,9 +207,10 @@ That’s where the build-std feature of cargo comes in. It allows to recompile c
 
 ### VGA Text buffer
 VGA text mode is a classic display mode used in computers, particularly in the DOS/early PC era. It's basically a simple way to display text on a screen where each character occupies a fixed cell in an 80x25 grid (by default).
+The VGA text buffer is a two-dimensional array with typically 25 rows and 80 columns, which is directly rendered to the screen.
 The cool thing about VGA text mode is that each character cell contains two bytes:
 
-One byte for the actual character (like 'A' or '7')
+One byte for the actual ASCII character (like 'A' or '7') [it isn&apos;t exactly ASCII, but a character set named code page 437 with some additional characters and slight modifications]
 One byte for the attributes (colors and effects)
 
 The attribute byte breaks down like this:
@@ -217,9 +219,13 @@ Bits 0-3: Foreground color (16 colors)
 Bits 4-6: Background color (8 colors)
 Bit 7: Blink effect (makes text flash)
 
+![vga text buffer colors](public/vga-text-buffer-color.png)
+
 This is why old DOS programs could have colored text and those cheesy blinking effects. The text mode was super efficient because it only needed to store 4000 bytes (80×25×2) to represent a full screen of colored text, compared to much more memory needed for graphical modes.
 
 For printing “Hello World!”, we just need to know that the buffer is located at address 0xb8000 and that each character cell consists of an ASCII byte and a color byte.
+The VGA text buffer is accessible via memory-mapped I/O to the address 0xb8000.
+This means that reads and writes to that address don&apos;t access the RAM but directly access the text buffer on the VGA hardware. 
 
 ```rust
 static HELLO: &[u8] = b"Hello World!";
@@ -269,3 +275,25 @@ The bootimage tool performs the following steps behind the scenes:
 - It links the bytes of the kernel ELF file to the bootloader.
 
 When booted, the bootloader reads and parses the appended ELF file. It then maps the program segments to virtual addresses in the page tables, zeroes the .bss section, and sets up a stack. Finally, it reads the entry point address (our _start function) and jumps to it.
+
+### Part 3
+In computer programming, a value is said to be volatile if it can be read or modified asynchronously by something other than the current thread of execution. The value of a volatile variable may spontaneously change for reasons such as: sharing values with other threads; sharing values with asynchronous signal handlers; accessing hardware devices via memory-mapped I/O (VGA Hardware in our case). The compiler doesn’t know that we really access VGA buffer memory (instead of normal RAM) and knows nothing about the side effect that some characters appear on the screen. So it might decide that these writes are unnecessary and can be omitted. To avoid this erroneous optimization, we need to specify these writes as volatile. This tells the compiler that the write has side effects and should not be optimized away.
+
+In order to use volatile writes to the buffer, we can `volatile` library.
+
+This library provides `volatile::Volatile` wrapper generic class, which we can use to wrap the screen character and make sure that the writes are unoptimized. This also implements the write and read method for the same.
+
+#### Formatting macros
+to support formatting macros, we need to implement `core::fmt::Write` trait, having `write_str` as the required method, which is similar to `write_string`, but with `Result` return type.
+
+```rust
+use core::fmt;
+
+impl fmt::Write for Writer {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.write_string(s);
+        Ok(())
+    }
+}
+
+```
